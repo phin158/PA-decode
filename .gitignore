@@ -1,0 +1,25 @@
+# third-party code (installed by setup.sh)
+third_party/
+
+# data, caches and outputs
+data/
+data_raw/
+cache/
+cache_supervised/
+results/
+toy_data/
+toy_cache/
+toy_results/
+*.npz
+*.pt
+lightning_logs/
+wandb/
+
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
+.DS_Store

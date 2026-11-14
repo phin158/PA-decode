@@ -1,0 +1,12 @@
+numpy
+scipy
+scikit-learn
+pandas
+matplotlib
+torch
+pytorch-lightning
+torchmetrics
+wandb            # imported by the authors' train.py (logging is disabled)
+gdown            # only to download the unsupervised datasets
+remotezip        # only to download 50salads (MS-TCN format) for the supervised experiment
+pytest
