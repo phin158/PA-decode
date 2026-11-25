@@ -1,6 +1,6 @@
 # Applying Optimal Transport to Unsupervised Action Segmentation
 
-Code for **PA-decode** (proportion-aware decoding), a test-time change to
+Code for **PA-decode** (proportion-adaptive decoding), a test-time change to
 [ASOT](https://github.com/mingu6/action_seg_ot) (Xu & Gould, *Temporally Consistent Unbalanced Optimal Transport for
 Unsupervised Action Segmentation*, CVPR 2024).
 
