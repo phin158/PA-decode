@@ -233,7 +233,7 @@ def gain_table(exp, ds):
 
 def videos_for(exp, ds, k, paper_patterns):
     """k videos of one activity: the videos of the ASOT paper ('paper') or the k largest gains of PA-decode over ASOT
-    within one activity, excluding outputs collapsed to one action ('gain')."""
+    within one activity, excluding outputs collapsed to one action and taking at most one camera view per recording ('gain')."""
     if PICK['mode'] == 'paper':
         out, used = [], set()
         for pat in paper_patterns:
@@ -242,10 +242,12 @@ def videos_for(exp, ds, k, paper_patterns):
             out.append((a, v, name))
         return out
     df = gain_table(exp, ds)
-    ok = df[(~df.collapsed) & (df.gain > 0)]
+    ok = df[(~df.collapsed) & (df.gain > 0)].copy()
+    # one video per recording: Breakfast films each person with several cameras (P16_cam01, P16_webcam01, ...)
+    ok['rec'] = ok.name.str.split('_').str[0] if ds == 'Breakfast' else ok.name
     best = None
     for a, q in ok.groupby('act'):
-        q = q.head(k)
+        q = q.drop_duplicates('rec').head(k)
         if len(q) == k and (best is None or q.gain.min() > best.gain.min()):
             best = q
     if best is None:
