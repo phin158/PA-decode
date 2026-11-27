@@ -10,6 +10,10 @@
              + action proportions (true, uniform 1/K, pihat)
   Fig. 7, 8  Fig. 5 with F1 and mIoU (appendix, as Fig. 7 and 8 of ASOT)
 
+Example videos (Fig. 2, 4, 6): by default (--pick gain) the videos where PA-decode improves most over ASOT
+(per-video MoF, Full protocol; outputs collapsed to a single action are skipped), all candidates are written to
+video_gain_ranking.csv; --pick paper uses the videos of the ASOT paper instead.
+
 ASOT      = the authors' decoding (lambda = 0.01, uniform target) of the same trained model.
 PA-decode = the configuration selected by the 2-fold procedure of the main experiment.
 One run per dataset (RUN below = the run of Table III). The cache of the main experiment (trained models and
@@ -200,12 +204,62 @@ def draw_bars(fig, spec, rows, C, title, show_labels=True):
     return pal
 
 
+PICK = {'mode': 'gain'}   # 'gain': videos where PA-decode improves most over ASOT; 'paper': the videos of the ASOT paper
+GAIN_TABLES = {}
+
+
+def gain_table(exp, ds):
+    """Per-video MoF (Full protocol) of ASOT and PA-decode for the run of Table III, sorted by gain."""
+    if ds in GAIN_TABLES:
+        return GAIN_TABLES[ds]
+    s, rows = exp.seeds[ds][0], []
+    for a in exp.units_of(ds):
+        run, info = exp.dec[(ds, a, s)], exp.uinfo[(ds, a)]
+        nv, offs = len(info['names']), run['offs']
+        acc_as, _ = per_video_mof(exp, ds, a, s, np.full(nv, IDX_PAPER))
+        ch = chosen_of(exp, ds, s, cfg.M_PA)[a]
+        acc_pa, _ = per_video_mof(exp, ds, a, s, ch)
+        for v in range(nv):
+            g = np.asarray(info['gt'][v]).astype(int)
+            n_gt = len(np.unique(g[g >= 0]))
+            n_pa = len(np.unique(run['segs'][ch[v], offs[v]:offs[v + 1]]))
+            rows.append(dict(ds=ds, act=a, v=v, name=os.path.basename(str(info['names'][v])), ASOT=100 * acc_as[v],
+                             PA=100 * acc_pa[v], gain=100 * (acc_pa[v] - acc_as[v]),
+                             collapsed=bool(n_pa < min(3, n_gt))))   # PA output (almost) one action: not a useful example
+    df = pd.DataFrame(rows).sort_values('gain', ascending=False).reset_index(drop=True)
+    GAIN_TABLES[ds] = df
+    return df
+
+
+def videos_for(exp, ds, k, paper_patterns):
+    """k videos of one activity: the videos of the ASOT paper ('paper') or the k largest gains of PA-decode over ASOT
+    within one activity, excluding outputs collapsed to one action ('gain')."""
+    if PICK['mode'] == 'paper':
+        out, used = [], set()
+        for pat in paper_patterns:
+            a, v, name = find_video(exp, ds, pat, used)
+            used.add(name)
+            out.append((a, v, name))
+        return out
+    df = gain_table(exp, ds)
+    ok = df[(~df.collapsed) & (df.gain > 0)]
+    best = None
+    for a, q in ok.groupby('act'):
+        q = q.head(k)
+        if len(q) == k and (best is None or q.gain.min() > best.gain.min()):
+            best = q
+    if best is None:
+        warn(f'{ds}: fewer than {k} non-collapsed videos with a gain in one activity; using the largest gains overall')
+        best = df[~df.collapsed].head(k)
+    return [(r.act, int(r.v), r.name) for r in best.itertuples()]
+
+
 # ----------------------------------------------------------------------------- Fig. 2
 @torch.no_grad()
 def fig2(exp, out):
     ds, pat = VID_FIG2
     s = exp.seeds[ds][0]
-    a, v, name = find_video(exp, ds, pat)
+    a, v, name = videos_for(exp, ds, 1, [pat])[0]
     run, info, kw = exp.dec[(ds, a, s)], exp.uinfo[(ds, a)], exp.eval_kw(ds)
     K = run['conf'].shape[2]
     m, dobj = load_model(exp, ds, a, s), make_ds(exp, ds, a, None, False)
@@ -249,33 +303,31 @@ def fig2(exp, out):
 # ----------------------------------------------------------------------------- Fig. 4 and Fig. 6
 def fig4(exp, out):
     plt.rcParams.update(PAPER_RC)
-    groups = [('Breakfast', '(a) Example videos from the "salat" activity class of Breakfast.'),
-              ('YTI', '(b) Example videos from YTI ("repot" category).')]
+    groups = [('Breakfast', '(a) Example videos from the "{act}" activity of Breakfast.'),
+              ('YTI', '(b) Example videos from YTI ("{act}" category).')]
     W, H = 3.4, 3.9
     fig = plt.figure(figsize=(W, H))
     outer = fig.add_gridspec(2, 1, hspace=0.35, left=0.2, right=0.92, top=0.95, bottom=0.04)
     LOG['fig4'] = []
     for gi, (ds, cap) in enumerate(groups):
-        vids = [p for d, p in VID_FIG4 if d == ds]
+        pats = [p for d, p in VID_FIG4 if d == ds]
+        sel = videos_for(exp, ds, len(pats), pats)
         s = exp.seeds[ds][0]
-        sub = outer[gi].subgridspec(len(vids) + 1, 1, hspace=0.55, height_ratios=[1] * len(vids) + [0.35])
-        used, shown = set(), set()
-        a0 = None
-        for k, pat in enumerate(vids):
-            a, v, name = find_video(exp, ds, pat, shown)
-            shown.add(name)
-            a0 = a
+        sub = outer[gi].subgridspec(len(sel) + 1, 1, hspace=0.55, height_ratios=[1] * len(sel) + [0.35])
+        used = set()
+        for k, (a, v, name) in enumerate(sel):
             rows = method_rows(exp, ds, a, s, v)
             C = exp.uinfo[(ds, a)]['C']
             pal = draw_bars(fig, sub[k], rows, C, name)
             used |= {int(x) for r in rows for x in np.unique(r[1]) if x < C}
-            LOG['fig4'].append(dict(dataset=ds, video=name, seed=s, mof={r[0]: r[2] for r in rows[1:]}))
+            LOG['fig4'].append(dict(dataset=ds, activity=a, video=name, seed=s, mof={r[0]: r[2] for r in rows[1:]}))
+        a0 = sel[0][0]
         names = class_names(exp, ds, a0)
-        ax = fig.add_subplot(sub[len(vids)])
+        ax = fig.add_subplot(sub[len(sel)])
         ax.axis('off')
         hs = [Patch(color=pal[c % 20], label=names[c]) for c in sorted(used)]
         ax.legend(handles=hs, ncol=4, fontsize=4.5, loc='center', frameon=False, handlelength=1, columnspacing=0.8)
-        ax.set_title(cap, fontsize=6, y=-1.2)
+        ax.set_title(cap.format(act=a0), fontsize=6, y=-1.2)
     save(fig, out, 'fig4_examples')
 
 
@@ -286,7 +338,7 @@ def fig6(exp, out):
     LOG['fig6'] = []
     for i, (ds, pat) in enumerate(VID_FIG6):
         s = exp.seeds[ds][0]
-        a, v, name = find_video(exp, ds, pat)
+        a, v, name = videos_for(exp, ds, 1, [pat])[0]
         run, info = exp.dec[(ds, a, s)], exp.uinfo[(ds, a)]
         C, K = info['C'], run['conf'].shape[2]
         rows = method_rows(exp, ds, a, s, v)
@@ -355,7 +407,7 @@ def sensitivity(exp):
 def draw_sensitivity(df, metric, out, name):
     plt.rcParams.update(PAPER_RC)
     j = metric
-    fig, ax = plt.subplots(2, 2, figsize=(3.4, 3.4))
+    fig, ax = plt.subplots(2, 2, figsize=(3.4, 3.1))
     caps = {'lambda': '(a) Balanc. assign. weight $\\lambda$ (test)', 'w': '(b) Target weight $w$',
             'beta': '(c) Quality of $\\hat{\\pi}$: $\\beta$', 'source': '(d) Source of $\\hat{\\pi}$'}
     xl = {'lambda': '$\\lambda$', 'w': '$w$', 'beta': '$\\beta$', 'source': 'source'}
@@ -389,7 +441,7 @@ def draw_sensitivity(df, metric, out, name):
             ls_.append('ASOT')
         axi.legend(hs, ls_, fontsize=4.5, ncol=4 if panel == 'lambda' else 3, loc='upper center',
                    bbox_to_anchor=(0.5, 1.2), frameon=False, handlelength=1.2, columnspacing=0.6)
-    fig.tight_layout(h_pad=3.0, w_pad=0.8)
+    fig.tight_layout(h_pad=1.2, w_pad=0.8)
     save(fig, out, name)
 
 
@@ -402,6 +454,8 @@ def main():
     p.add_argument('--runs', default=None, help='override, e.g. "Breakfast=5,YTI=3,FS=0,FSeval=0,desktop_assembly=6"')
     p.add_argument('--quick', action='store_true', help='smoke test only (models trained for 2 epochs)')
     p.add_argument('--device', default=None)
+    p.add_argument('--pick', choices=['gain', 'paper'], default='gain',
+                   help="example videos: largest gain of PA-decode over ASOT (default) or the videos of the ASOT paper")
     a = p.parse_args()
     run = dict(RUN)
     if a.runs:
@@ -411,9 +465,13 @@ def main():
     run_until(exp, 'point', checks=False)
     out = exp.out('figures_asot_style')
     os.makedirs(out, exist_ok=True)
+    PICK['mode'] = a.pick
+    LOG['pick'] = a.pick
     fig2(exp, out)
     fig4(exp, out)
     fig6(exp, out)
+    if GAIN_TABLES:
+        pd.concat(GAIN_TABLES.values()).to_csv(os.path.join(out, 'video_gain_ranking.csv'), index=False)
     df = sensitivity(exp)
     df.to_csv(os.path.join(out, 'sensitivity_pa_params.csv'), index=False)
     draw_sensitivity(df, 'MoF', out, 'fig5_sensitivity_mof')
