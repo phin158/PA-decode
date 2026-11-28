@@ -26,6 +26,9 @@ def check_hparams(exp, h, ds, act):
 
 
 def train_one(exp, ds, act, seed):
+    if getattr(exp, 'backbone', 'asot') == 'peot':
+        from .peot import train_one_peot
+        return train_one_peot(exp, ds, act, seed)
     path = model_path(exp, ds, act, seed)
     try:
         r = torch.load(path, map_location='cpu', weights_only=False)
@@ -84,6 +87,9 @@ def train_all(exp, verbose=True):
 
 
 def load_model(exp, ds, act, seed):
+    if getattr(exp, 'backbone', 'asot') == 'peot':
+        from .peot import load_peot
+        return load_peot(exp, ds, act, seed)
     r = exp.trained[(ds, act, seed)]
     m = exp.atrain.VideoSSL(**r['hparams'])
     m.load_state_dict(r['state_dict'])

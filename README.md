@@ -202,6 +202,29 @@ from the labels of the **training** split. The metrics are Acc, Edit and F1@{10,
 bash run_supervised.sh --data-dir /path/to/data/50salads   # MS-TCN format; downloaded from Zenodo if omitted
 ```
 
+## Additional experiments (reviewer requests)
+
+Pre-registered in [`docs/preregistration_extra.md`](docs/preregistration_extra.md) before they were run.
+
+| Part | What | Script |
+|---|---|---|
+| E1 | segmental metrics Edit, F1@{10,25,50} (MS-TCN `eval.py`) of ASOT, ASOT-λ, PA-decode | `run_extra_analyses.py` |
+| E2 | selected configurations re-solved with 50 / 100 iterations and with the start T0 = p νᵀ | `run_extra_analyses.py` |
+| E3 | post-hoc baseline: ASOT plan reweighted by ν/q after decoding, same grid and selection | `run_extra_analyses.py` |
+| E4 | label-free selection: one configuration chosen by leave-one-dataset-out | `run_extra_analyses.py` |
+| E6 | PA-decode on the PEOT backbone (Li, Vu & Gall, ECCV 2026), authors' code and README commands | `--backbone peot`, `run_peot.py` |
+
+```bash
+bash run_extra.sh E1,E2,E3,E4   # -> results/extra/
+bash run_extra.sh E6            # -> results_peot/ (clones derkbreeze/PEOT at commit fbc9c11 into third_party/PEOT)
+```
+
+For E6, PEOT is trained with the authors' `train.py`; the only changes (applied as text patches in
+`src/pa_decode/peot.py`) save the last-epoch checkpoint, train every activity (the script had debugging filters
+that train only one activity), read our data folder, and skip the per-epoch test evaluation except at the last epoch
+(the random stream is unchanged). `run_peot.py` checks that our decoding of each PEOT model with the authors' test
+setting reproduces the authors' own evaluation printed by `train.py`.
+
 ## Tests and smoke test
 
 ```bash

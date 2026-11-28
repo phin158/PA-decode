@@ -82,7 +82,10 @@ def video_cost(m, feat, device):
     D = m.layer_sizes[-1]
     x = feat.to(device)[None]
     B, T, _ = x.shape
-    f = F.normalize(m.mlp(x.reshape(-1, x.shape[-1])).reshape(B, T, D), dim=-1)
+    if hasattr(m, 'embed'):                  # PEOT: normalised GCN mean (pa_decode/peot.py)
+        f = m.embed(x)
+    else:
+        f = F.normalize(m.mlp(x.reshape(-1, x.shape[-1])).reshape(B, T, D), dim=-1)
     tp = asot.temporal_prior(T, m.n_clusters, m.rho, device)
     cost = 1. - f @ m.clusters.T.unsqueeze(0)
     cost += tp

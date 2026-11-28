@@ -16,7 +16,8 @@ warnings.filterwarnings('ignore')
 
 
 class Experiment:
-    def __init__(self, data_dir, cache_dir, out_dir, datasets=None, seeds=None, quick=False, device=None):
+    def __init__(self, data_dir, cache_dir, out_dir, datasets=None, seeds=None, quick=False, device=None,
+                 backbone='asot'):
         from .asot_bridge import load_training_modules, ASOT_HEAD
         self.amet, self.atrain, self.VideoDataset = load_training_modules()
         self.asot_head = ASOT_HEAD
@@ -27,12 +28,20 @@ class Experiment:
             os.makedirs(d, exist_ok=True)
         self.quick = quick
         self.datasets = list(datasets or cfg.ALL_DATASETS)
-        self.paper = copy.deepcopy(cfg.PAPER)
+        self.backbone = backbone                 # 'asot' (main experiment) or 'peot' (E6, pa_decode/peot.py)
+        base = cfg.PAPER
+        if backbone == 'peot':
+            from .peot import PEOT_PAPER as base
+            bad = [d for d in self.datasets if d not in base]
+            assert not bad, f'PEOT backbone is not defined for {bad}'
+        self.paper = copy.deepcopy(base)
         self.seeds = copy.deepcopy(cfg.SEEDS)
         self.n_boot = dict(cfg.N_BOOT)
         if quick:
             q = cfg.quick_overrides()
-            self.paper, self.seeds, self.n_boot = q['paper'], q['seeds'], q['n_boot']
+            self.seeds, self.n_boot = q['seeds'], q['n_boot']
+            for d in self.paper:
+                self.paper[d]['ne'] = q['paper'].get(d, {}).get('ne', 2)
         if seeds is not None:
             self.seeds = {ds: list(seeds) for ds in cfg.ALL_DATASETS}
         self.device = torch.device(device or ('cuda' if torch.cuda.is_available() else 'cpu'))
@@ -71,10 +80,12 @@ def add_common_args(parser):
     parser.add_argument('--seeds', default=None, help='comma-separated seeds (default: 0..9)')
     parser.add_argument('--quick', action='store_true', help='smoke test: 2 epochs, 3 seeds, 30 bootstrap rounds')
     parser.add_argument('--device', default=None, help='cuda / cpu (default: cuda if available)')
+    parser.add_argument('--backbone', default='asot', choices=['asot', 'peot'],
+                        help='trained model: asot (main experiment) or peot (experiment E6)')
     return parser
 
 
 def experiment_from_args(args):
     seeds = [int(s) for s in args.seeds.split(',')] if args.seeds else None
     return Experiment(args.data_dir, args.cache_dir, args.out_dir, datasets=args.datasets.split(','),
-                      seeds=seeds, quick=args.quick, device=args.device)
+                      seeds=seeds, quick=args.quick, device=args.device, backbone=getattr(args, 'backbone', 'asot'))

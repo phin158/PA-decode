@@ -62,8 +62,10 @@ def _gt_hash(exp, ds, act):
 
 
 def decode_path(exp, ds, act, seed):
-    tag = hashlib.md5(json.dumps([CFGS, exp.eval_kw(ds), cfg.LAM_PAPER, _gt_hash(exp, ds, act), exp.paper[ds]['ne'],
-                                  cfg.TAU_MM]).encode()).hexdigest()[:8]
+    key = [CFGS, exp.eval_kw(ds), cfg.LAM_PAPER, _gt_hash(exp, ds, act), exp.paper[ds]['ne'], cfg.TAU_MM]
+    if getattr(exp, 'backbone', 'asot') != 'asot':
+        key.append(exp.backbone)
+    tag = hashlib.md5(json.dumps(key).encode()).hexdigest()[:8]
     return exp.path('decode', f'{ds}_{act}_s{seed}_{tag}.npz')
 
 
@@ -160,6 +162,9 @@ def run_solver_checks(exp):
         act = exp.units_of(ds)[0]
         m = load_model(exp, ds, act, exp.seeds[ds][0])
         feat = make_ds(exp, ds, act, None, False)[0][0]
+        if getattr(exp, 'backbone', 'asot') == 'peot':
+            from .peot import check_embed
+            print(f'{ds}: PEOT GCN tridiagonal vs dense max diff {check_embed(m, feat, exp.device):.2e}')
         cost, codes = video_cost(m, feat, exp.device)
         kw = exp.eval_kw(ds)
         check_against_asot(cost, kw, cfg.COMMON['lfe'], exp.device, tag=ds)
